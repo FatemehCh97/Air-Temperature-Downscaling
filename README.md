@@ -1,6 +1,6 @@
 # Air-Temperature-Downscaling
 
-This repository contains the Python code used in the research paper titled "Machine Learning-Based Downscaling of Urban Air Temperature Using LiDAR Data" The code implements a framework based on machine learning techniques to downscale urban climate data obtained from the UrbClim model at a lower resolution (100 m) to a higher resolution (5 m).
+This repository contains the Python code used in the research paper titled "Machine Learning-Based Downscaling of Urban Air Temperature Using LiDAR Data" The code implements a framework based on machine learning techniques to downscale urban climate data obtained from the UrbClim model at a lower resolution (100 m) to a higher resolution (5 m), using morphological features and meteorological data.
 
 ## Data Preparation
 
