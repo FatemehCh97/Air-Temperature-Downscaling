@@ -1,90 +1,85 @@
-# -*- coding: utf-8 -*-
 """
 @author: FatemehChajaei
 """
 
-from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
 import pandas as pd
-import numpy as np
 import os
 
-
-param_path = r"D:\Code\Amsterdam Parameter\Train_Test\RoI"
-save_path = r"D:\Code\Temp_Prediction_Amsterdam\RoI\Models\save_models"
-
-df = pd.read_csv(os.path.join(param_path, "Train_Parameters_DataFrame.csv"))
-df_test = pd.read_csv(os.path.join(param_path, "Test_Parameters_DataFrame.csv"))
-
-# df = pd.read_csv(os.path.join(param_path, "Parameters_DataFrame_2.csv"))
-# df_test = pd.read_csv(os.path.join(param_path, "Test_Parameters_DataFrame_2.csv"))
+from my_functions import preprocess_data, perform_grid_search
+from my_functions import evaluate_performance
 
 
-X = df[df.columns[1:15]]
-X_test = df_test[df_test.columns[1:15]]
+# Set paths
+param_path = "Train_Test/RoI"
 
+# Load training and testing data for estimating daily average temperature
+df_train = pd.read_csv(os.path.join(param_path,
+                                    "Train_Parameters_DataFrame.csv"))
+df_test = pd.read_csv(os.path.join(param_path,
+                                   "Test_Parameters_DataFrame.csv"))
 
-df_all = np.concatenate((X, X_test))
+# Load training and testing data for estimating daily maximum temperature
+df_train_max = pd.read_csv(os.path.join(param_path,
+                                        "Parameters_DataFrame_max.csv"))
+df_test_max = pd.read_csv(os.path.join(param_path,
+                                       "Test_Parameters_DataFrame_max.csv"))
 
+# Load training and testing data for estimating daily minimum temperature
+df_train_min = pd.read_csv(os.path.join(param_path,
+                                        "Parameters_DataFrame_min.csv"))
+df_test_min = pd.read_csv(os.path.join(param_path,
+                                       "Test_Parameters_DataFrame_min.csv"))
 
-scaler = MinMaxScaler()
-Xs = scaler.fit_transform(df_all)
+# Preprocess the data
+X_train, y_train, X_test, y_test = preprocess_data(df_train, df_test)
+X_train_max, y_train_max, X_test_max, y_test_max = preprocess_data(
+    df_train_max, df_test_max
+    )
+X_train_min, y_train_min, X_test_min, y_test_min = preprocess_data(
+    df_train_min, df_test_min
+)
 
-y = df.loc[:,['Temp']]
-y = y.to_numpy()
-y = np.ravel(y)
-Xtrain = Xs[0:8060]
-
-y_test = df_test.loc[:,['Temp']]
-y_test = y_test.to_numpy()
-y_test = np.ravel(y_test)
-Xtest = Xs[8060:]
-
+# Define Random Forest (RF) model
 model = RandomForestRegressor()
 
-"""Grid search-Kfold"""
+# Define hyperparameter grid for Grid Search
+param_grid = dict(n_estimators=[100, 500, 1000], 
+                  max_depth=[3, 5, 7, 8, 10],
+                  max_features=[0.5, 0.7, 0.8, 1])
 
-distributions = dict(n_estimators = [100, 500, 1000], 
-                      max_depth=[3, 5, 7, 8, 10],
-                      max_features=[0.5, 0.7, 0.8, 1])
+# Perform Grid Search
+best_params_avg = perform_grid_search(model, param_grid,
+                                      X_train, y_train)
+best_params_max = perform_grid_search(model, param_grid,
+                                      X_train_max, y_train_max)
+best_params_min = perform_grid_search(model, param_grid,
+                                      X_train_min, y_train_min)
 
-reg = GridSearchCV(model, distributions, verbose=2)
-search = reg.fit(Xtrain, y)
-print('----------------------------')
-print(search.best_params_)
-print('----------------------------')
+model_avg = RandomForestRegressor(**best_params_avg)
+model_max = RandomForestRegressor(**best_params_max)
+model_min = RandomForestRegressor(**best_params_min)
 
+# Train SVR model
+model_avg.fit(X_train, y_train)
+model_max.fit(X_train_max, y_train_max)
+model_min.fit(X_train_min, y_train_min)
 
-model = RandomForestRegressor(n_estimators= search.best_params_['n_estimators'],
-                      max_depth= search.best_params_['max_depth'],
-                      max_features= search.best_params_['max_features'])
+# Train and predict on the training set
+df_train["y_pred"] = model_avg.predict(X_train)
+df_train_max["y_pred"] = model_max.predict(X_train)
+df_train_min["y_pred"] = model_min.predict(X_train)
 
-model = RandomForestRegressor(n_estimators = 500,
-                      max_depth = 5,
-                      max_features = 0.7)
+# Train and predict on the test set
+df_test["y_pred"] = model_avg.predict(X_test)
+df_test_max["y_pred"] = model_max.predict(X_test)
+df_test_min["y_pred"] = model_min.predict(X_test)
 
-model.fit(Xtrain, y)
+# Evaluate performance
+evaluate_performance(df_train, "Train (Average Temp)")
+evaluate_performance(df_train_max, "Train (Max Temp)")
+evaluate_performance(df_train_min, "Train (Min Temp)")
 
-########## Train
-df["y_pred"] = model.predict(Xtrain)
-df_test["y_pred"] = model.predict(Xtest)
-
-
-RMSE_train = np.round(mean_squared_error(df["Temp"], df["y_pred"], squared=False),3)
-MAE_train = np.round(mean_absolute_error(df["Temp"], df["y_pred"]),3)
-RMSE_test = np.round(mean_squared_error(df_test["Temp"], df_test["y_pred"], squared=False),3)
-MAE_test = np.round(mean_absolute_error(df_test["Temp"], df_test["y_pred"]),3)
-print ("RMSE Train: ", RMSE_train, "      RMSE Test: ", RMSE_test)
-print ("MAE Train:  ", MAE_train, "      MAE Test:  ", MAE_test)
-
-
-APE = (np.abs(df_test["Temp"]-df_test["y_pred"]))/(df_test["Temp"])
-MAPE = mean_absolute_percentage_error(df_test["Temp"], df_test["y_pred"])
-print("MAPE: ", MAPE)
-
-
-from sklearn.metrics import r2_score
-r2 = r2_score(df_test["Temp"], df_test["y_pred"])
-print('r2 score for perfect model is', r2)
+evaluate_performance(df_test, "Test (Average Temp)")
+evaluate_performance(df_test_max, "Test (Max Temp)")
+evaluate_performance(df_test_min, "Test (Min Temp)")
