@@ -1,81 +1,83 @@
-# -*- coding: utf-8 -*-
 """
-Created on Sun Feb 19 03:42:03 2023
-
-@author: NovinGostar
+@author: FatemehChajaei
 """
 
 from sklearn.svm import SVR
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import GridSearchCV, KFold
-from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
 import pandas as pd
-import numpy as np
 import os
 
+from my_functions import preprocess_data, perform_grid_search
+from my_functions import evaluate_performance
 
-param_path = r"D:\Code\Amsterdam Parameter\Train_Test\RoI"
-save_path = r"D:\Code\Temp_Prediction_Amsterdam\RoI\Models\save_models"
+# Set paths
+param_path = "Train_Test/RoI"
 
-df = pd.read_csv(os.path.join(param_path, "Train_Parameters_DataFrame.csv"))
-df_test = pd.read_csv(os.path.join(param_path, "Test_Parameters_DataFrame.csv"))
+# Load training and testing data for estimating daily average temperature
+df_train = pd.read_csv(os.path.join(param_path,
+                                    "Train_Parameters_DataFrame.csv"))
+df_test = pd.read_csv(os.path.join(param_path,
+                                   "Test_Parameters_DataFrame.csv"))
 
+# Load training and testing data for estimating daily maximum temperature
+df_train_max = pd.read_csv(os.path.join(param_path,
+                                        "Parameters_DataFrame_max.csv"))
+df_test_max = pd.read_csv(os.path.join(param_path,
+                                       "Test_Parameters_DataFrame_max.csv"))
 
+# Load training and testing data for estimating daily minimum temperature
+df_train_min = pd.read_csv(os.path.join(param_path,
+                                        "Parameters_DataFrame_min.csv"))
+df_test_min = pd.read_csv(os.path.join(param_path,
+                                       "Test_Parameters_DataFrame_min.csv"))
 
-X = df[df.columns[1:15]]
-X_test = df_test[df_test.columns[1:15]]
+# Preprocess the data
+X_train, y_train, X_test, y_test = preprocess_data(df_train, df_test)
+X_train_max, y_train_max, X_test_max, y_test_max = preprocess_data(
+    df_train_max, df_test_max
+    )
+X_train_min, y_train_min, X_test_min, y_test_min = preprocess_data(
+    df_train_min, df_test_min
+)
 
+# Define Support Vector Regression (SVR) model
+model = SVR()
 
-df_all = np.concatenate((X, X_test))
+# Define hyperparameter grid for Grid Search
+param_grid = dict(kernel=['sigmoid', 'rbf', 'linear', 'poly'],
+                  C=[0.01, 0.1, 1, 100])
 
+# Perform Grid Search
+best_params_avg = perform_grid_search(model, param_grid,
+                                      X_train, y_train)
+best_params_max = perform_grid_search(model, param_grid,
+                                      X_train_max, y_train_max)
+best_params_min = perform_grid_search(model, param_grid,
+                                      X_train_min, y_train_min)
 
-scaler = MinMaxScaler()
-Xs = scaler.fit_transform(df_all)
+model_avg = SVR(**best_params_avg)
+model_max = SVR(**best_params_max)
+model_min = SVR(**best_params_min)
 
-y = df.loc[:,['Temp']]
-y = y.to_numpy()
-y = np.ravel(y)
-Xtrain = Xs[0:8060]
+# Train SVR model
+model_avg.fit(X_train, y_train)
+model_max.fit(X_train_max, y_train_max)
+model_min.fit(X_train_min, y_train_min)
 
+# Train and predict on the training set
+df_train["y_pred"] = model_avg.predict(X_train)
+df_train_max["y_pred"] = model_max.predict(X_train)
+df_train_min["y_pred"] = model_min.predict(X_train)
 
+# Train and predict on the test set
+df_test["y_pred"] = model_avg.predict(X_test)
+df_test_max["y_pred"] = model_max.predict(X_test)
+df_test_min["y_pred"] = model_min.predict(X_test)
 
-y_test = df_test.loc[:,['Temp']]
-y_test = y_test.to_numpy()
-y_test = np.ravel(y_test)
-Xtest = Xs[8060:]
+# Evaluate performance
+evaluate_performance(df_train, "Train (Average Temp)")
+evaluate_performance(df_train_max, "Train (Max Temp)")
+evaluate_performance(df_train_min, "Train (Min Temp)")
 
-
-"""Grid search-Kfold"""
-model =SVR()
-distributions = dict(kernel = ['sigmoid', 'rbf', 'linear', 'poly'], 
-                      C = [0.01, 0.1, 1, 100])
-
-reg = GridSearchCV(model, distributions, verbose=2)
-search = reg.fit(Xtrain, y)
-print('----------------------------')
-print(search.best_params_)
-print('----------------------------')
-
-
-model = SVR(kernel='rbf', C=100, gamma='auto', epsilon=.1)
-
-model.fit(Xtrain, y)
-
-df_test["y_pred"] = model.predict(Xtest)
-df["y_pred"] = model.predict(Xtrain)
-
-RMSE_train = np.round(mean_squared_error(df["Temp"], df["y_pred"], squared=False),3)
-MAE_train = np.round(mean_absolute_error(df["Temp"], df["y_pred"]),3)
-RMSE_test = np.round(mean_squared_error(df_test["Temp"], df_test["y_pred"], squared=False),3)
-MAE_test = np.round(mean_absolute_error(df_test["Temp"], df_test["y_pred"]),3)
-print ("RMSE Train: ", RMSE_train, "      RMSE Test: ", RMSE_test)
-print ("MAE Train:  ", MAE_train, "      MAE Test: ", MAE_test)
-
-APE = (np.abs(df_test["Temp"]-df_test["y_pred"]))/(df_test["Temp"])
-MAPE = mean_absolute_percentage_error(df_test["Temp"], df_test["y_pred"])
-print("MAPE: ", MAPE)
-
-
-from sklearn.metrics import r2_score
-r2 = r2_score(df_test["Temp"], df_test["y_pred"])
-print('r2 score for perfect model is', r2)
+evaluate_performance(df_test, "Test (Average Temp)")
+evaluate_performance(df_test_max, "Test (Max Temp)")
+evaluate_performance(df_test_min, "Test (Min Temp)")
